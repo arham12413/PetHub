@@ -65,7 +65,7 @@ class _LoginPageState extends State<LoginPage> {
         context,
         MaterialPageRoute(builder: (context) => Home()),
       );
-    } on FirebaseAuthException catch (e) {nm
+    } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') {
         _showSnackBar('No user found for that email.');
       } else if (e.code == 'wrong-password') {
