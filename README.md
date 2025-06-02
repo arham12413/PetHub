@@ -1,6 +1,6 @@
 # PetHub
 
-A new Flutter project.
+A new Flutter project for adopting Pets.
 
 ## Getting Started
 
