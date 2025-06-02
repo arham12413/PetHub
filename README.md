@@ -1,4 +1,4 @@
-# pet_adoption
+# PetHub
 
 A new Flutter project.
 
