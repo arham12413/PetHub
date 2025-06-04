@@ -4,7 +4,8 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:path/path.dart' as path;
 
 class AddPetForm extends StatefulWidget {
   const AddPetForm({super.key});
@@ -34,6 +35,32 @@ class _AddPetFormState extends State<AddPetForm> {
     }
   }
 
+  Future<List<String>> _uploadImagesToFirebase() async {
+    List<String> downloadUrls = [];
+    final storage = FirebaseStorage.instance;
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) return downloadUrls;
+
+    for (var image in _selectedImages) {
+      try {
+        // Create unique filename with timestamp
+        final filename = '${DateTime.now().millisecondsSinceEpoch}${path.extension(image.path)}';
+        final ref = storage.ref().child('pet_images/${user.uid}/$filename');
+
+        // Upload the file
+        await ref.putFile(File(image.path));
+
+        // Get the download URL
+        final url = await ref.getDownloadURL();
+        downloadUrls.add(url);
+      } catch (e) {
+        print('Error uploading image: $e');
+      }
+    }
+    return downloadUrls;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -54,21 +81,33 @@ class _AddPetFormState extends State<AddPetForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Image Picker
-                  Text("Upload Images", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  // Image Picker Section
+                  Text("Upload Images", style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      ..._selectedImages.map((img) => ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          File(img.path),
-                          height: 80,
-                          width: 80,
-                          fit: BoxFit.cover,
-                        ),
+                      ..._selectedImages.map((img) => FutureBuilder(
+                        future: img.readAsBytes(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasData) {
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                snapshot.data!,
+                                height: 80,
+                                width: 80,
+                                fit: BoxFit.cover,
+                              ),
+                            );
+                          }
+                          return Container(
+                            height: 80,
+                            width: 80,
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        },
                       )),
                       GestureDetector(
                         onTap: _pickImages,
@@ -87,12 +126,12 @@ class _AddPetFormState extends State<AddPetForm> {
                   const SizedBox(height: 20),
 
                   // Form Fields
-                  buildTextField("Category", categoryController),
-                  buildTextField("Nickname", nicknameController),
-                  buildTextField("Age", ageController, inputType: TextInputType.number),
-                  buildTextField("Description", descriptionController, maxLines: 3),
-                  buildTextField("Breed", breedController),
-                  buildTextField("Disorder", disorderController),
+                  _buildTextField("Category", categoryController),
+                  _buildTextField("Nickname", nicknameController),
+                  _buildTextField("Age", ageController, inputType: TextInputType.number),
+                  _buildTextField("Description", descriptionController, maxLines: 3),
+                  _buildTextField("Breed", breedController),
+                  _buildTextField("Disorder", disorderController),
 
                   const SizedBox(height: 25),
 
@@ -105,38 +144,45 @@ class _AddPetFormState extends State<AddPetForm> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () async {
-                        if (_formKey.currentState!.validate()) {
+                        if (_formKey.currentState!.validate() && _selectedImages.isNotEmpty) {
                           try {
+                            // Show loading dialog
+                            Get.dialog(
+                              Center(child: CircularProgressIndicator()),
+                              barrierDismissible: false,
+                            );
+
+                            // Upload images and get URLs
+                            final imageUrls = await _uploadImagesToFirebase();
+
+                            // Save pet data to Realtime Database
                             final DatabaseReference dbRef = FirebaseDatabase.instance.ref("pets").push();
-
-                            List<String> imagePaths = _selectedImages.map((img) => img.path).toList();
-
                             await dbRef.set({
+                              "petId": dbRef.key,
+                              "ownerId": FirebaseAuth.instance.currentUser!.uid,
+                              "isPurchased": false,
                               "category": categoryController.text.trim(),
                               "nickname": nicknameController.text.trim(),
                               "age": ageController.text.trim(),
                               "description": descriptionController.text.trim(),
                               "breed": breedController.text.trim(),
                               "disorder": disorderController.text.trim(),
-                              "imagePaths": imagePaths,
-                              "createdAt": DateTime.now().toIso8601String(),
+                              "imageUrls": imageUrls,
+                              "createdAt": DateTime.now().millisecondsSinceEpoch,
                             });
 
-                            Get.back();
-                            Get.snackbar("Success", "Pet details added!",
-                              backgroundColor: Colors.green,
-                              colorText: Colors.white,
-                            );
+                            // Close dialogs and return
+                            Get.back(); // Close loading dialog
+                            Get.back(); // Close form
+                            Get.snackbar("Success", "Pet added successfully!");
                           } catch (e) {
-                            Get.snackbar("Error", "Failed to add pet: $e",
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                            );
+                            Get.back(); // Close loading dialog
+                            Get.snackbar("Error", "Failed to add pet: $e");
                           }
+                        } else if (_selectedImages.isEmpty) {
+                          Get.snackbar("Error", "Please select at least one image");
                         }
                       },
-
-
                       icon: const Icon(Icons.check),
                       label: const Text('Submit'),
                     ),
@@ -150,7 +196,8 @@ class _AddPetFormState extends State<AddPetForm> {
     );
   }
 
-  Widget buildTextField(String label, TextEditingController controller, {int maxLines = 1, TextInputType inputType = TextInputType.text}) {
+  Widget _buildTextField(String label, TextEditingController controller,
+      {int maxLines = 1, TextInputType inputType = TextInputType.text}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: TextFormField(

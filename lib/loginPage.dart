@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'home.dart';
@@ -76,6 +77,8 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  // In the Login Page (_LoginPageState class), replace the _createAccount method with:
+
   void _createAccount() async {
     try {
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
@@ -86,11 +89,12 @@ class _LoginPageState extends State<LoginPage> {
       User? user = userCredential.user;
 
       if (user != null) {
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        // Save to Realtime Database instead of Firestore
+        await FirebaseDatabase.instance.ref('users/${user.uid}').set({
           'fullName': nameController.text.trim(),
           'email': emailController.text.trim(),
           'phone': phoneController.text.trim(),
-          'createdAt': Timestamp.now(),
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
         });
 
         _showSnackBar('Account created successfully!', color: Colors.green);

@@ -1,12 +1,13 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:pet_adoption/petForm.dart';
 import 'package:pet_adoption/pet_modle.dart';
 import 'package:pet_adoption/search.dart';
 
+import 'my_listings.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -16,8 +17,25 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-
   List<Pet> pets = [];
+  List<Pet> filteredPets = [];
+  String currentFilter = 'all';
+  bool isLoading = false;
+
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+
+  String? fullName;
+  String? email;
+  String? phone;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+    _listenForPets();
+  }
 
   void _listenForPets() {
     _dbRef.child('pets').onValue.listen((event) {
@@ -27,39 +45,44 @@ class _HomeState extends State<Home> {
         final loadedPets = petsMap.values.map((e) => Pet.fromMap(e)).toList();
         setState(() {
           pets = loadedPets;
+          _applyFilters();
+          isLoading = false;
         });
       }
     });
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _loadUserInfo();
-    _listenForPets();
+  void _applyFilters() {
+    setState(() {
+      if (currentFilter == 'all') {
+        filteredPets = List.from(pets);
+      } else {
+        filteredPets = pets.where((pet) =>
+        pet.category.toLowerCase() == currentFilter.toLowerCase()
+        ).toList();
+      }
+    });
   }
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
-
-  String? fullName;
-  String? email;
-
+  void _handleFilterChanged(String category) {
+    setState(() {
+      currentFilter = category;
+      _applyFilters();
+    });
+  }
 
   Future<void> _loadUserInfo() async {
     try {
       User? user = _auth.currentUser;
       if (user != null) {
         final snapshot = await _dbRef.child('users/${user.uid}').get();
-
         if (snapshot.exists) {
           final data = snapshot.value as Map;
           setState(() {
             fullName = data['fullName'];
             email = data['email'];
+            phone = data['phone'];
           });
-        } else {
-          print('No user data found.');
         }
       }
     } catch (e) {
@@ -68,6 +91,7 @@ class _HomeState extends State<Home> {
   }
 
   void _showProfileDialog() {
+    final user = _auth.currentUser;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -77,11 +101,15 @@ class _HomeState extends State<Home> {
           children: [
             ListTile(
               leading: const Icon(Icons.person),
-              title: Text(fullName ?? 'Loading...'),
+              title: Text(fullName ?? user?.displayName ?? 'N/A'),
             ),
             ListTile(
               leading: const Icon(Icons.email),
-              title: Text(email ?? 'Loading...'),
+              title: Text(email ?? user?.email ?? 'N/A'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.phone),
+              title: Text(phone ?? user?.phoneNumber ?? 'N/A'),
             ),
           ],
         ),
@@ -93,6 +121,89 @@ class _HomeState extends State<Home> {
         ],
       ),
     );
+  }
+
+  void _showMyListings() {
+    final userId = _auth.currentUser?.uid;
+    if (userId != null) {
+      Get.to(() => MyListingsPage(
+        pets: pets,
+        currentUserId: userId,
+        onDelete: _deletePet,
+      ));
+    }
+  }
+
+
+  void _showPurchasedPets() {
+    final userId = _auth.currentUser?.uid;
+    final purchasedPets = pets.where((pet) => pet.isPurchased && pet.ownerId != userId).toList();
+    _showPetDialog("Purchased Pets", purchasedPets);
+  }
+
+  void _showPetDialog(String title, List<Pet> petList) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: petList.isEmpty
+              ? const Text("No pets found.")
+              : ListView.builder(
+            shrinkWrap: true,
+            itemCount: petList.length,
+            itemBuilder: (context, index) {
+              final pet = petList[index];
+              return ListTile(
+                leading: pet.imageURLs.isNotEmpty
+                    ? Image.network(
+                  pet.imageURLs.first,
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) =>
+                      Icon(Icons.error, color: Colors.red),
+                )
+                    : Icon(Icons.pets, color: Colors.red),
+                title: Text(pet.nickname),
+                subtitle: Text("${pet.breed}, Age: ${pet.age}"),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          )
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deletePet(Pet pet) async {
+    try {
+      // Delete images from storage first
+      for (var url in pet.imageURLs) {
+        try {
+          await _storage.refFromURL(url).delete();
+        } catch (e) {
+          print('Error deleting image: $e');
+        }
+      }
+
+      // Delete pet record from database
+      await _dbRef.child('pets/${pet.petId}').remove();
+
+      Get.snackbar("Success", "Pet deleted successfully",
+        backgroundColor: Colors.green,
+      );
+    } catch (e) {
+      Get.snackbar("Error", "Failed to delete pet: $e",
+        backgroundColor: Colors.red,
+      );
+    }
   }
 
   @override
@@ -134,12 +245,12 @@ class _HomeState extends State<Home> {
             ListTile(
               leading: Icon(Icons.list_alt, color: Colors.red),
               title: Text('My Listings'),
-              onTap: () => Get.snackbar("Listings", "Viewing your pet listings..."),
+              onTap: _showMyListings,
             ),
             ListTile(
               leading: Icon(Icons.shopping_bag, color: Colors.red),
               title: Text('Purchased Pets'),
-              onTap: () => Get.snackbar("Purchased", "Viewing purchased pets..."),
+              onTap: _showPurchasedPets,
             ),
             Divider(),
             ListTile(
@@ -211,45 +322,154 @@ class _HomeState extends State<Home> {
                 borderRadius: BorderRadius.circular(12),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: const Search(),
+              child: Search(
+                onFilterChanged: _handleFilterChanged,
+              ),
             ),
             const SizedBox(height: 20),
             Expanded(
-              child: pets.isEmpty
+              child: isLoading
+                  ? Center(child: CircularProgressIndicator())
+                  : filteredPets.isEmpty
                   ? Center(
                 child: Text("No pets available",
                     style: TextStyle(color: Colors.red.shade300)),
               )
                   : ListView.builder(
-                itemCount: pets.length,
+                itemCount: filteredPets.length,
                 itemBuilder: (context, index) {
-                  final pet = pets[index];
-                  return Card(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                  final pet = filteredPets[index];
+                  return Dismissible(
+                    key: Key(pet.petId),
+                    direction: pet.ownerId == _auth.currentUser?.uid
+                        ? DismissDirection.endToStart
+                        : DismissDirection.none,
+                    background: Container(
+                      color: Colors.red,
+                      alignment: Alignment.centerRight,
+                      padding: EdgeInsets.only(right: 20),
+                      child: Icon(Icons.delete, color: Colors.white),
                     ),
-                    elevation: 4,
-                    margin: const EdgeInsets.symmetric(vertical: 8),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.all(12),
-                      leading: pet.imagePaths.isNotEmpty
-                          ? Image.file(
-                        File(pet.imagePaths.first),
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                      )
-                          : Icon(Icons.pets, size: 40, color: Colors.red),
-                      title: Text(pet.nickname),
-                      subtitle: Text("${pet.breed}, Age: ${pet.age}"),
+                    confirmDismiss: (direction) async {
+                      if (pet.ownerId != _auth.currentUser?.uid) {
+                        return false;
+                      }
+                      return await Get.dialog(
+                        AlertDialog(
+                          title: Text("Delete Pet"),
+                          content: Text("Are you sure you want to delete ${pet.nickname}?"),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Get.back(result: false),
+                              child: Text("Cancel"),
+                            ),
+                            TextButton(
+                              onPressed: () => Get.back(result: true),
+                              child: Text("Delete", style: TextStyle(color: Colors.red)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    onDismissed: (direction) => _deletePet(pet),
+                    child: Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.all(12),
+                        leading: pet.imageURLs.isNotEmpty
+                            ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            pet.imageURLs.first,
+                            width: 60,
+                            height: 60,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Icon(Icons.error, color: Colors.red, size: 40),
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  value: loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              );
+                            },
+                          ),
+                        )
+                            : Icon(Icons.pets, size: 40, color: Colors.red),
+                        title: Text(pet.nickname),
+                        subtitle: Text("${pet.breed}, Age: ${pet.age}"),
+                        onTap: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: Text(pet.nickname),
+                              content: SingleChildScrollView(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (pet.imageURLs.isNotEmpty)
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.network(
+                                          pet.imageURLs.first,
+                                          height: 200,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                    SizedBox(height: 16),
+                                    _buildPetDetailRow("Category", pet.category),
+                                    _buildPetDetailRow("Breed", pet.breed),
+                                    _buildPetDetailRow("Age", pet.age),
+                                    _buildPetDetailRow("Disorder", pet.disorder),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      pet.description,
+                                      style: TextStyle(fontStyle: FontStyle.italic),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: Text("Close"),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   );
                 },
               ),
             )
-
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPetDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "$label: ",
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          Expanded(child: Text(value)),
+        ],
       ),
     );
   }

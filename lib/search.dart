@@ -44,7 +44,12 @@ class _SearchState extends State<Search> {
             setState(() {
               _selectedFilter = value;
             });
-            widget.onFilterChanged?.call(value);
+            // ✅ When "All" is selected, pass empty string to reset filter
+            if (value == 'All') {
+              widget.onFilterChanged?.call('');
+            } else {
+              widget.onFilterChanged?.call(value);
+            }
           },
           itemBuilder: (BuildContext context) {
             return {'All', 'Dog', 'Cat', 'Bird', 'Other'}.map((String choice) {
