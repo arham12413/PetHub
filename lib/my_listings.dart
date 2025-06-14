@@ -1,76 +1,31 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:pet_adoption/pet_modle.dart';
 import 'package:get/get.dart';
 
-import 'EditPetPage.dart';
-
-class MyListingsPage extends StatefulWidget {
+class MyListingsPage extends StatelessWidget {
+  final List<Pet> pets;
   final String currentUserId;
+  final Function(Pet) onDelete;
 
-  const MyListingsPage({Key? key, required this.currentUserId, required List<Pet> pets, required Future<void> Function(Pet pet) onDelete}) : super(key: key);
-
-  @override
-  State<MyListingsPage> createState() => _MyListingsPageState();
-}
-
-class _MyListingsPageState extends State<MyListingsPage> {
-  List<Pet> myPets = [];
-  bool isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    fetchPets();
-  }
-
-  Future<void> fetchPets() async {
-    final snapshot = await FirebaseDatabase.instance.ref('pets').once();
-    final petsMap = snapshot.snapshot.value as Map?;
-    if (petsMap != null) {
-      final allPets = petsMap.entries.map((entry) {
-        final petData = Map<String, dynamic>.from(entry.value);
-        petData['id'] = entry.key;
-        return Pet.fromMap(petData);
-      }).toList();
-
-      final userPets = allPets.where((pet) => pet.ownerId == widget.currentUserId).toList();
-
-      setState(() {
-        myPets = userPets;
-        isLoading = false;
-      });
-    } else {
-      setState(() {
-        myPets = [];
-        isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _deletePet(Pet pet) async {
-    await FirebaseDatabase.instance.ref('pets/${pet.petId}').remove();
-    setState(() {
-      myPets.removeWhere((p) => p.petId == pet.petId);
-    });
-  }
-
-  void _editPet(Pet pet) async {
-    await Get.to(() => EditPetPage(pet: pet));
-    fetchPets(); // Refresh after edit
-  }
+  const MyListingsPage({
+    Key? key,
+    required this.pets,
+    required this.currentUserId,
+    required this.onDelete,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final myPets = pets.where((pet) => pet.ownerId == currentUserId).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: Text('My Listings'),
         backgroundColor: Colors.red.shade400,
       ),
-      body: isLoading
-          ? Center(child: CircularProgressIndicator())
-          : myPets.isEmpty
+      body: myPets.isEmpty
           ? Center(
         child: Text(
           'You haven\'t listed any pets yet',
@@ -85,18 +40,12 @@ class _MyListingsPageState extends State<MyListingsPage> {
             margin: EdgeInsets.all(10),
             elevation: 2,
             child: ListTile(
-              leading: pet.imageURLs.isNotEmpty
-                  ? CachedNetworkImage(
-                imageUrl: pet.imageURLs.first,
+              leading: pet.imageBase64.isNotEmpty
+                  ? Image.memory(
+                base64Decode(pet.imageBase64.first),
                 width: 60,
                 height: 60,
                 fit: BoxFit.cover,
-                placeholder: (context, url) => Container(
-                  color: Colors.grey.shade200,
-                  child: Icon(Icons.pets, color: Colors.red),
-                ),
-                errorWidget: (context, url, error) =>
-                    Icon(Icons.error, color: Colors.red),
               )
                   : Icon(Icons.pets, size: 40, color: Colors.red),
               title: Text(pet.nickname),
@@ -113,18 +62,9 @@ class _MyListingsPageState extends State<MyListingsPage> {
                   ),
                 ],
               ),
-              trailing: Wrap(
-                spacing: 8,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.edit, color: Colors.orange),
-                    onPressed: () => _editPet(pet),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _confirmDelete(context, pet),
-                  ),
-                ],
+              trailing: IconButton(
+                icon: Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _confirmDelete(context, pet),
               ),
               onTap: () => _showPetDetails(context, pet),
             ),
@@ -148,7 +88,8 @@ class _MyListingsPageState extends State<MyListingsPage> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _deletePet(pet);
+              onDelete(pet);
+              Get.back(); // Close the MyListingsPage after deletion
             },
             child: Text('Delete', style: TextStyle(color: Colors.red)),
           ),
@@ -166,16 +107,11 @@ class _MyListingsPageState extends State<MyListingsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (pet.imageURLs.isNotEmpty)
-                CachedNetworkImage(
-                  imageUrl: pet.imageURLs.first,
+              if (pet.imageBase64.isNotEmpty)
+                Image.memory(
+                  base64Decode(pet.imageBase64.first),
                   height: 200,
                   fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    height: 200,
-                    color: Colors.grey.shade200,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
                 ),
               SizedBox(height: 16),
               _buildDetailRow('Category', pet.category),

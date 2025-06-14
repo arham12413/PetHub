@@ -2,14 +2,13 @@ class Pet {
   final String petId;
   final String ownerId;
   final bool isPurchased;
-
   final String category;
   final String nickname;
   final String age;
   final String description;
   final String breed;
   final String disorder;
-  final List<String> imageURLs;
+  final List<String> imageBase64; // Changed from imageURLs to imageBase64
 
   Pet({
     required this.petId,
@@ -21,7 +20,7 @@ class Pet {
     required this.description,
     required this.breed,
     required this.disorder,
-    required this.imageURLs,
+    required this.imageBase64,
   });
 
   factory Pet.fromMap(Map<dynamic, dynamic> map) {
@@ -35,7 +34,7 @@ class Pet {
       description: map['description'] ?? '',
       breed: map['breed'] ?? '',
       disorder: map['disorder'] ?? '',
-      imageURLs: List<String>.from(map['imagePaths'] ?? []),
+      imageBase64: List<String>.from(map['imageBase64'] ?? []),
     );
   }
 
@@ -50,7 +49,8 @@ class Pet {
       'description': description,
       'breed': breed,
       'disorder': disorder,
-      'imagePaths': imageURLs,
+      'imageBase64': imageBase64,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
     };
   }
 }

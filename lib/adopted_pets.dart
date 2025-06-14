@@ -1,5 +1,4 @@
-// adopted_pets_page.dart
-import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:pet_adoption/pet_modle.dart';
 
@@ -31,8 +30,13 @@ class AdoptedPetsPage extends StatelessWidget {
           return Card(
             margin: const EdgeInsets.all(10),
             child: ListTile(
-              leading: pet.imageURLs.isNotEmpty
-                  ? Image.file(File(pet.imageURLs.first), width: 60, height: 60, fit: BoxFit.cover)
+              leading: pet.imageBase64.isNotEmpty
+                  ? Image.memory(
+                base64Decode(pet.imageBase64.first),
+                width: 60,
+                height: 60,
+                fit: BoxFit.cover,
+              )
                   : Icon(Icons.pets, size: 40, color: Colors.red),
               title: Text(pet.nickname),
               subtitle: Text("${pet.breed}, Age: ${pet.age}"),

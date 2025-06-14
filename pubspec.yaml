@@ -39,7 +39,6 @@ dependencies:
   cached_network_image: any
   firebase_core: any
   firebase_auth: any
-  firebase_storage: any
   firebase_database: any
   cloud_firestore: any
 

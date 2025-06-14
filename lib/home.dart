@@ -1,12 +1,14 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:pet_adoption/loginPage.dart';
 import 'package:pet_adoption/petForm.dart';
 import 'package:pet_adoption/pet_modle.dart';
 import 'package:pet_adoption/search.dart';
-
+import 'Details.dart';
 import 'my_listings.dart';
 
 class Home extends StatefulWidget {
@@ -24,7 +26,6 @@ class _HomeState extends State<Home> {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
-  final FirebaseStorage _storage = FirebaseStorage.instance;
 
   String? fullName;
   String? email;
@@ -150,27 +151,28 @@ class _HomeState extends State<Home> {
           width: double.maxFinite,
           child: petList.isEmpty
               ? const Text("No pets found.")
-              : ListView.builder(
-            shrinkWrap: true,
-            itemCount: petList.length,
+           : // In your ListView.builder itemBuilder:
+          ListView.builder(
+            itemCount: filteredPets.length,
             itemBuilder: (context, index) {
-              final pet = petList[index];
-              return ListTile(
-                leading: pet.imageURLs.isNotEmpty
-                    ? Image.network(
-                  pet.imageURLs.first,
-                  width: 40,
-                  height: 40,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      Icon(Icons.error, color: Colors.red),
-                )
-                    : Icon(Icons.pets, color: Colors.red),
-                title: Text(pet.nickname),
-                subtitle: Text("${pet.breed}, Age: ${pet.age}"),
+              final pet = filteredPets[index];
+              return Card(
+                child: ListTile(
+                  leading: pet.imageBase64.isNotEmpty
+                      ? Image.memory(
+                    base64Decode(pet.imageBase64.first),
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                  )
+                      : Icon(Icons.pets),
+                  title: Text(pet.nickname),
+                  subtitle: Text("${pet.breed}, Age: ${pet.age}"),
+                  onTap: () => Get.to(() => PetDetailsPage(pet: pet)),
+                ),
               );
             },
-          ),
+          )
         ),
         actions: [
           TextButton(
@@ -184,25 +186,21 @@ class _HomeState extends State<Home> {
 
   Future<void> _deletePet(Pet pet) async {
     try {
-      // Delete images from storage first
-      for (var url in pet.imageURLs) {
-        try {
-          await _storage.refFromURL(url).delete();
-        } catch (e) {
-          print('Error deleting image: $e');
-        }
-      }
-
-      // Delete pet record from database
+      // Simply delete the pet record from database
       await _dbRef.child('pets/${pet.petId}').remove();
 
-      Get.snackbar("Success", "Pet deleted successfully",
+      Get.snackbar(
+        "Success",
+        "Pet deleted successfully",
         backgroundColor: Colors.green,
       );
     } catch (e) {
-      Get.snackbar("Error", "Failed to delete pet: $e",
+      Get.snackbar(
+        "Error",
+        "Failed to delete pet: ${e.toString()}",
         backgroundColor: Colors.red,
       );
+      print("Error deleting pet: $e");
     }
   }
 
@@ -258,7 +256,7 @@ class _HomeState extends State<Home> {
               title: Text('Log Out'),
               onTap: () async {
                 await _auth.signOut();
-                Get.offAllNamed('/login');
+                Get.to(LoginPage());
               },
             ),
           ],
@@ -335,7 +333,8 @@ class _HomeState extends State<Home> {
                 child: Text("No pets available",
                     style: TextStyle(color: Colors.red.shade300)),
               )
-                  : ListView.builder(
+              // In your ListView.builder itemBuilder:
+              :  ListView.builder(
                 itemCount: filteredPets.length,
                 itemBuilder: (context, index) {
                   final pet = filteredPets[index];
@@ -351,9 +350,7 @@ class _HomeState extends State<Home> {
                       child: Icon(Icons.delete, color: Colors.white),
                     ),
                     confirmDismiss: (direction) async {
-                      if (pet.ownerId != _auth.currentUser?.uid) {
-                        return false;
-                      }
+                      if (pet.ownerId != _auth.currentUser?.uid) return false;
                       return await Get.dialog(
                         AlertDialog(
                           title: Text("Delete Pet"),
@@ -380,77 +377,25 @@ class _HomeState extends State<Home> {
                       margin: const EdgeInsets.symmetric(vertical: 8),
                       child: ListTile(
                         contentPadding: const EdgeInsets.all(12),
-                        leading: pet.imageURLs.isNotEmpty
+                        leading: pet.imageBase64.isNotEmpty
                             ? ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            pet.imageURLs.first,
+                          child: Image.memory(
+                            base64Decode(pet.imageBase64.first),
                             width: 60,
                             height: 60,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Icon(Icons.error, color: Colors.red, size: 40),
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Center(
-                                child: CircularProgressIndicator(
-                                  value: loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded /
-                                      loadingProgress.expectedTotalBytes!
-                                      : null,
-                                ),
-                              );
-                            },
                           ),
                         )
                             : Icon(Icons.pets, size: 40, color: Colors.red),
                         title: Text(pet.nickname),
                         subtitle: Text("${pet.breed}, Age: ${pet.age}"),
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: Text(pet.nickname),
-                              content: SingleChildScrollView(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (pet.imageURLs.isNotEmpty)
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Image.network(
-                                          pet.imageURLs.first,
-                                          height: 200,
-                                          fit: BoxFit.cover,
-                                        ),
-                                      ),
-                                    SizedBox(height: 16),
-                                    _buildPetDetailRow("Category", pet.category),
-                                    _buildPetDetailRow("Breed", pet.breed),
-                                    _buildPetDetailRow("Age", pet.age),
-                                    _buildPetDetailRow("Disorder", pet.disorder),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      pet.description,
-                                      style: TextStyle(fontStyle: FontStyle.italic),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: Text("Close"),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                        onTap: () => Get.to(() => PetDetailsPage(pet: pet)),
                       ),
                     ),
                   );
                 },
-              ),
+              )
             )
           ],
         ),

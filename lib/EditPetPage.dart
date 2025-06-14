@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:pet_adoption/pet_modle.dart';
@@ -43,10 +45,9 @@ class _EditPetPageState extends State<EditPetPage> {
       description: descriptionController.text,
       category: categoryController.text,
       ownerId: widget.pet.ownerId,
-      imageURLs: widget.pet.imageURLs,
-      isPurchased: false,
+      imageBase64: widget.pet.imageBase64, // Updated to use imageBase64
+      isPurchased: widget.pet.isPurchased,
     );
-
 
     await databaseRef.child(widget.pet.petId).update(updatedPet.toMap());
     Get.back(); // Navigate back after saving
@@ -63,6 +64,15 @@ class _EditPetPageState extends State<EditPetPage> {
         padding: const EdgeInsets.all(16.0),
         child: ListView(
           children: [
+            if (widget.pet.imageBase64.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Image.memory(
+                  base64Decode(widget.pet.imageBase64.first),
+                  height: 200,
+                  fit: BoxFit.cover,
+                ),
+              ),
             _buildTextField('Nickname', nicknameController),
             _buildTextField('Breed', breedController),
             _buildTextField('Age', ageController),
